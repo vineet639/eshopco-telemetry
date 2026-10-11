@@ -4,7 +4,6 @@ import math
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # --------------------------------------------------
@@ -12,18 +11,6 @@ from pydantic import BaseModel
 # --------------------------------------------------
 
 app = FastAPI(title="eShopCo Telemetry API")
-
-# --------------------------------------------------
-# CORS configuration
-# --------------------------------------------------
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 # --------------------------------------------------
 # Telemetry data file
@@ -53,7 +40,7 @@ def load_records():
 
         return records
 
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(
             status_code=500,
             detail=f"Unable to load telemetry data: {exc}",
