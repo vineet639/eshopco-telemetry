@@ -3,6 +3,7 @@ import math
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 # --------------------------------------------------
@@ -18,17 +19,27 @@ app = FastAPI(title="eShopCo Telemetry API")
 CORS_HEADERS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, Accept",
+    "Access-Control-Max-Age": "86400",
 }
 
 
 @app.middleware("http")
 async def add_cors(request: Request, call_next):
     if request.method == "OPTIONS":
-        return Response(status_code=204, headers=CORS_HEADERS)
+        return Response(status_code=200, headers=CORS_HEADERS)
     response = await call_next(request)
     response.headers.update(CORS_HEADERS)
     return response
+
+
+@app.exception_handler(Exception)
+async def all_errors(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc)},
+        headers=CORS_HEADERS,
+    )
 
 
 # --------------------------------------------------
@@ -84,6 +95,7 @@ def health():
 
 
 @app.post("/")
+@app.post("/{path:path}")
 def calculate_metrics(request: MetricsRequest):
     records = load_records()
     result = {}
