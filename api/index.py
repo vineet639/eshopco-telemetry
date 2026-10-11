@@ -1,11 +1,11 @@
 
-import csv
+import json
 import math
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 app = FastAPI(title="eShopCo Telemetry API")
 
@@ -16,47 +16,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DATA_FILE = Path(__file__).resolve().parent.parent / "telemetry.json"
 
 
 class MetricsRequest(BaseModel):
     regions: list[str]
-    threshold_ms: float = Field(default=180)
+    threshold_ms: float = 180
 
 
 def load_records():
-    records = []
+    with DATA_FILE.open("r", encoding="utf-8") as file:
+        records = json.load(file)
 
-    for path in sorted(DATA_DIR.rglob("*.csv")):
-        with path.open(
-            "r", encoding="utf-8-sig", newline=""
-        ) as file:
-            for row in csv.DictReader(file):
-                records.append(row)
-
-    if not records:
-        raise RuntimeError(
-            "No CSV telemetry records found in data/"
-        )
+    if not isinstance(records, list):
+        raise ValueError("Expected a JSON array of telemetry records.")
 
     return records
-
-
-def get_value(row, candidates):
-    normalized = {
-        key.strip().lower().replace(" ", "_"): value
-        for key, value in row.items()
-        if key is not None
-    }
-
-    for key in candidates:
-        value = normalized.get(key)
-        if value is not None and str(value).strip() != "":
-            return value
-
-    raise ValueError(
-        f"Missing required column. Expected one of: {candidates}"
-    )
 
 
 def percentile95(values):
@@ -79,9 +54,8 @@ def calculate_metrics(request: MetricsRequest):
         for region in request.regions:
             matching = [
                 row for row in records
-                if str(get_value(
-                    row, ["region", "region_name"]
-                )).strip().lower() == region.strip().lower()
+                if str(row.get("region", "")).lower()
+                == region.lower()
             ]
 
             if not matching:
@@ -91,18 +65,11 @@ def calculate_metrics(request: MetricsRequest):
                 )
 
             latencies = [
-                float(get_value(
-                    row,
-                    ["latency_ms", "latency", "response_time_ms"]
-                ))
-                for row in matching
+                float(row["latency_ms"]) for row in matching
             ]
 
             uptimes = [
-                float(get_value(
-                    row, ["uptime", "uptime_pct", "uptime_percent"]
-                ))
-                for row in matching
+                float(row["uptime_pct"]) for row in matching
             ]
 
             result[region] = {
@@ -125,12 +92,9 @@ def calculate_metrics(request: MetricsRequest):
 
     except HTTPException:
         raise
-    except (ValueError, KeyError, TypeError) as exc:
-        raise HTTPException(
-            status_code=500, detail=str(exc)
-        ) from exc
-    except OSError as exc:
+    except (OSError, json.JSONDecodeError, KeyError,
+            ValueError, TypeError) as exc:
         raise HTTPException(
             status_code=500,
-            detail="Unable to read telemetry data."
+            detail=f"Unable to process telemetry data: {exc}"
         ) from exc
